@@ -7,17 +7,24 @@ import java.util.Iterator;
 import java.util.List;
 
 public class MovimientoCuadrado extends JPanel implements ActionListener {
-    private static final int SIZE = 150;               // Tamaño inicial de cada cuadrado
+    private static final int SIZE = 300;               // Tamaño inicial de cada cuadrado
     private static final int NUM_SQUARES = 6;           // Número de cuadrados
-    private static final int SPEED = 10;                 // Magnitud de la velocidad (píxeles/frame)
+    private static final int SPEED = 20;                 // Magnitud de la velocidad (píxeles/frame)
     private static final int AREA_SIZE = 1000;           // Tamaño del área de juego (marco interior)
-    private static final int INITIAL_LIVES = 10;         // Vidas iniciales de cada cuadrado
+    private static final int INITIAL_LIVES = 30;         // Vidas iniciales de cada cuadrado (ahora 30)
     private static final int BORDER = 1;                  // Grosor del marco
     private static final int STATS_HEIGHT = 300;          // Altura de la zona de estadísticas
 
     private List<Square> squares;                         // Lista de cuadrados activos
     private Timer timer;
+    private boolean gameOver = false;                      // Indica si ya hay un ganador
 
+    private boolean animacionVictoria = false;
+    private double progresoVictoria = 0.0;
+    private Square ganador;                // Referencia al cuadrado que ganó
+    private int ganadorXIni, ganadorYIni;   // Posición inicial (esquina superior izquierda)
+    private int ganadorTamIni;              // Tamaño inicial
+    private static final double VEL_ANIMACION = 0.02; // Incremento de progreso por frame (ajustable)
     // Clase interna que representa un cuadrado con posición, velocidad, color, vidas y tamaño actual
     private static class Square {
         int x, y;                // Esquina superior izquierda (coordenadas lógicas dentro del área 0..AREA_SIZE)
@@ -93,45 +100,46 @@ public class MovimientoCuadrado extends JPanel implements ActionListener {
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
 
-        // 1. Dibujar el fondo blanco (ya está)
+        // 1. Dibujar el fondo blanco
         // 2. Dibujar los cuadrados (desplazados por el borde)
         for (Square sq : squares) {
             g.setColor(sq.color);
-            // Las coordenadas lógicas están en 0..AREA_SIZE, se desplazan +BORDER para el marco
             g.fillRect(sq.x + BORDER, sq.y + BORDER, sq.tamanoActual, sq.tamanoActual);
         }
 
         // 3. Dibujar el marco negro alrededor del área de juego
         g.setColor(Color.BLACK);
-        g.drawRect(0, 0, AREA_SIZE + BORDER, AREA_SIZE + BORDER); // El marco ocupa desde (0,0) hasta (AREA_SIZE+1, AREA_SIZE+1)
+        g.drawRect(0, 0, AREA_SIZE + BORDER, AREA_SIZE + BORDER);
 
-        // 4. Dibujar las estadísticas debajo del marco
+        // 4. Dibujar las estadísticas debajo del marco (verticalmente)
         dibujarEstadisticas(g);
     }
 
-    // Dibuja las barras de vida de cada cuadrado en la parte inferior
+    // Dibuja las barras de vida de cada cuadrado en la parte inferior, una debajo de otra
     private void dibujarEstadisticas(Graphics g) {
-        int statsY = AREA_SIZE + 2 * BORDER + 15; // Posición Y inicial de las estadísticas
-        int barWidth = 120;
-        int barHeight = 20;
+        int statsY = AREA_SIZE + 2 * BORDER + 20; // Posición Y inicial de las estadísticas
+        int barWidth = 200;
+        int barHeight = 25;
         int spacing = 10;
-        int startX = 10;
+        int startX = 20;
 
         g.setColor(Color.BLACK);
-        g.drawString("Vidas restantes:", startX, statsY - 5);
+        g.drawString("Vidas restantes:", startX, statsY - 10);
 
         int i = 0;
         for (Square sq : squares) {
-            int x = startX + i * (barWidth + spacing);
-            int y = statsY;
+            int x = startX;
+            int y = statsY + i * (barHeight + spacing);
 
             // Fondo de la barra (gris)
             g.setColor(Color.LIGHT_GRAY);
             g.fillRect(x, y, barWidth, barHeight);
 
-            // Barra de progreso (color del cuadrado) proporcional a las vidas
+            // Barra de progreso (color del cuadrado) proporcional a las vidas (escala lineal personalizada)
             g.setColor(sq.color);
-            int liveWidth = (int) (barWidth * ((double) sq.vidas / INITIAL_LIVES));
+            // Calcular ancho proporcional: desde 30 vidas (tamaño completo) hasta 1 vida (1/10 del ancho)
+            double proporcion = ((sq.vidas - 1) * (1.0 - 0.1) / (INITIAL_LIVES - 1)) + 0.1;
+            int liveWidth = (int) (barWidth * proporcion);
             g.fillRect(x, y, liveWidth, barHeight);
 
             // Borde negro de la barra
@@ -148,58 +156,94 @@ public class MovimientoCuadrado extends JPanel implements ActionListener {
 
     @Override
     public void actionPerformed(ActionEvent e) {
-        // Mover todos los cuadrados
-        for (Square sq : squares) {
-            sq.x += sq.vx;
-            sq.y += sq.vy;
+    // Si estamos en animación de victoria, solo actualizamos la expansión
+    if (animacionVictoria) {
+        // Incrementar progreso
+        progresoVictoria += VEL_ANIMACION;
+        if (progresoVictoria >= 1.0) {
+            progresoVictoria = 1.0;
+            // Al llegar al final, aseguramos los valores definitivos
+            ganador.x = 0;
+            ganador.y = 0;
+            ganador.tamanoActual = AREA_SIZE;
+            // Opcional: detener el timer si ya no quieres que haga nada
+            // timer.stop();
+        } else {
+            // Interpolación lineal
+            ganador.x = (int) (ganadorXIni + (0 - ganadorXIni) * progresoVictoria);
+            ganador.y = (int) (ganadorYIni + (0 - ganadorYIni) * progresoVictoria);
+            ganador.tamanoActual = (int) (ganadorTamIni + (AREA_SIZE - ganadorTamIni) * progresoVictoria);
         }
-
-        // Rebote con las paredes (límites lógicos 0..AREA_SIZE)
-        for (Square sq : squares) {
-            // Pared izquierda
-            if (sq.x < 0) {
-                sq.x = 0;
-                sq.vx = -sq.vx;
-            }
-            // Pared derecha
-            if (sq.x + sq.tamanoActual > AREA_SIZE) {
-                sq.x = AREA_SIZE - sq.tamanoActual;
-                sq.vx = -sq.vx;
-            }
-            // Pared superior
-            if (sq.y < 0) {
-                sq.y = 0;
-                sq.vy = -sq.vy;
-            }
-            // Pared inferior
-            if (sq.y + sq.tamanoActual > AREA_SIZE) {
-                sq.y = AREA_SIZE - sq.tamanoActual;
-                sq.vy = -sq.vy;
-            }
-        }
-
-        // Detectar y procesar colisiones entre cuadrados
-        for (int i = 0; i < squares.size(); i++) {
-            for (int j = i + 1; j < squares.size(); j++) {
-                Square a = squares.get(i);
-                Square b = squares.get(j);
-                if (hayColision(a, b)) {
-                    procesarColision(a, b);
-                }
-            }
-        }
-
-        // Eliminar cuadrados con vidas <= 0
-        Iterator<Square> it = squares.iterator();
-        while (it.hasNext()) {
-            Square sq = it.next();
-            if (sq.vidas <= 0) {
-                it.remove();
-            }
-        }
-
         repaint();
+        return; // Salimos, no ejecutamos el resto del movimiento
     }
+
+    // Mover todos los cuadrados
+    for (Square sq : squares) {
+        sq.x += sq.vx;
+        sq.y += sq.vy;
+    }
+
+    // Rebote con las paredes (límites lógicos 0..AREA_SIZE)
+    for (Square sq : squares) {
+        // Pared izquierda
+        if (sq.x < 0) {
+            sq.x = 0;
+            sq.vx = -sq.vx;
+        }
+        // Pared derecha
+        if (sq.x + sq.tamanoActual > AREA_SIZE) {
+            sq.x = AREA_SIZE - sq.tamanoActual;
+            sq.vx = -sq.vx;
+        }
+        // Pared superior
+        if (sq.y < 0) {
+            sq.y = 0;
+            sq.vy = -sq.vy;
+        }
+        // Pared inferior
+        if (sq.y + sq.tamanoActual > AREA_SIZE) {
+            sq.y = AREA_SIZE - sq.tamanoActual;
+            sq.vy = -sq.vy;
+        }
+    }
+
+    // Detectar y procesar colisiones entre cuadrados
+    for (int i = 0; i < squares.size(); i++) {
+        for (int j = i + 1; j < squares.size(); j++) {
+            Square a = squares.get(i);
+            Square b = squares.get(j);
+            if (hayColision(a, b)) {
+                procesarColision(a, b);
+            }
+        }
+    }
+
+    // Eliminar cuadrados con vidas <= 0
+    Iterator<Square> it = squares.iterator();
+    while (it.hasNext()) {
+        Square sq = it.next();
+        if (sq.vidas <= 0) {
+            it.remove();
+        }
+    }
+
+    // Verificar si solo queda un cuadrado (victoria)
+    if (squares.size() == 1 && !animacionVictoria) {
+        // Iniciar animación de victoria
+        ganador = squares.get(0);
+        // Guardar estado inicial
+        ganadorXIni = ganador.x;
+        ganadorYIni = ganador.y;
+        ganadorTamIni = ganador.tamanoActual;
+        // Activar animación
+        animacionVictoria = true;
+        progresoVictoria = 0.0;
+    }
+
+    repaint();
+    }
+    
 
     // Verifica si dos cuadrados se superponen (usando sus tamaños actuales)
     private boolean hayColision(Square a, Square b) {
@@ -227,12 +271,9 @@ public class MovimientoCuadrado extends JPanel implements ActionListener {
         int centroBx = b.x + b.tamanoActual / 2;
         int centroBy = b.y + b.tamanoActual / 2;
 
-        // Actualizar tamaños según vidas
-        a.tamanoActual = (int) (SIZE * ((double) a.vidas / INITIAL_LIVES));
-        b.tamanoActual = (int) (SIZE * ((double) b.vidas / INITIAL_LIVES));
-        // Asegurar que al menos sea 1 si hay vidas (para que se vea)
-        if (a.vidas > 0 && a.tamanoActual < 1) a.tamanoActual = 1;
-        if (b.vidas > 0 && b.tamanoActual < 1) b.tamanoActual = 1;
+        // Actualizar tamaños según vidas con escala lineal: desde SIZE (vidas=30) hasta SIZE/10 (vidas=1)
+        a.tamanoActual = calcularTamanio(a.vidas);
+        b.tamanoActual = calcularTamanio(b.vidas);
 
         // Reubicar para mantener el centro
         a.x = centroAx - a.tamanoActual / 2;
@@ -250,6 +291,16 @@ public class MovimientoCuadrado extends JPanel implements ActionListener {
         if (hayColision(a, b)) {
             resolverColision(a, b);
         }
+    }
+
+    // Calcula el tamaño según las vidas (lineal entre SIZE y SIZE/10)
+    private int calcularTamanio(int vidas) {
+        if (vidas <= 0) return 0;
+        if (vidas >= INITIAL_LIVES) return SIZE;
+        // Fórmula lineal: desde SIZE (vidas=30) hasta SIZE/10 (vidas=1)
+        double proporcion = ((vidas - 1) * (1.0 - 0.1) / (INITIAL_LIVES - 1)) + 0.1;
+        int tam = (int) (SIZE * proporcion);
+        return Math.max(1, tam); // Mínimo 1 píxel para que se vea
     }
 
     // Separa dos cuadrados que aún se superponen y ajusta velocidades (ya invertidas)
@@ -289,7 +340,7 @@ public class MovimientoCuadrado extends JPanel implements ActionListener {
         JFrame frame = new JFrame("Movimiento de 6 Cuadrados con Vidas");
         MovimientoCuadrado panel = new MovimientoCuadrado();
         frame.add(panel);
-        frame.pack(); // Ajusta el tamaño al preferido
+        frame.pack();
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
