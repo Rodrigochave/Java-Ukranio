@@ -1,63 +1,42 @@
+//Proyecto 2        Nombre: Chavez Aquiagual Rodrigo    Grupo:7CM4
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
 
 public class MovimientoCuadrado extends JPanel implements ActionListener {
-    private static final int SIZE = 300;               // Tamaño inicial de cada cuadrado
-    private static final int NUM_SQUARES = 6;           // Número de cuadrados
-    private static final int SPEED = 20;                 // Magnitud de la velocidad (píxeles/frame)
-    private static final int AREA_SIZE = 1000;           // Tamaño del área de juego (marco interior)
-    private static final int INITIAL_LIVES = 30;         // Vidas iniciales de cada cuadrado (ahora 30)
-    private static final int BORDER = 1;                  // Grosor del marco
-    private static final int STATS_HEIGHT = 300;          // Altura de la zona de estadísticas
+    private static final int SIZE = 300;
+    private static final int NUM_SQUARES = 6;
+    private static final int SPEED = 20;
+    private static final int AREA_SIZE = 1000;
+    private static final int INITIAL_LIVES = 30;
+    private static final int BORDER = 1;
+    private static final int STATS_HEIGHT = 300;
 
-    private List<Square> squares;                         // Lista de cuadrados activos
+    private Square[] squares;
+    private int numActivos;
     private Timer timer;
-    private boolean gameOver = false;                      // Indica si ya hay un ganador
 
     private boolean animacionVictoria = false;
     private double progresoVictoria = 0.0;
-    private Square ganador;                // Referencia al cuadrado que ganó
-    private int ganadorXIni, ganadorYIni;   // Posición inicial (esquina superior izquierda)
-    private int ganadorTamIni;              // Tamaño inicial
-    private static final double VEL_ANIMACION = 0.02; // Incremento de progreso por frame (ajustable)
-    // Clase interna que representa un cuadrado con posición, velocidad, color, vidas y tamaño actual
-    private static class Square {
-        int x, y;                // Esquina superior izquierda (coordenadas lógicas dentro del área 0..AREA_SIZE)
-        int vx, vy;              // Velocidad en píxeles/frame
-        Color color;
-        int vidas;                // Vidas restantes
-        int tamanoActual;         // Tamaño actual (se reduce con las vidas)
-
-        Square(int x, int y, int vx, int vy, Color color, int vidas, int tamanoActual) {
-            this.x = x;
-            this.y = y;
-            this.vx = vx;
-            this.vy = vy;
-            this.color = color;
-            this.vidas = vidas;
-            this.tamanoActual = tamanoActual;
-        }
-    }
+    private Square ganador;
+    private int ganadorXIni, ganadorYIni;
+    private int ganadorTamIni;
+    private static final double VEL_ANIMACION = 0.02;
 
     public MovimientoCuadrado() {
-        // Tamaño total del panel: área de juego + borde + zona de estadísticas
         setPreferredSize(new Dimension(AREA_SIZE + 2 * BORDER, AREA_SIZE + 2 * BORDER + STATS_HEIGHT));
         setBackground(Color.WHITE);
 
-        squares = new ArrayList<>();
+        squares = new Square[NUM_SQUARES];
         crearCuadradosAleatorios();
 
-        timer = new Timer(30, this); // 30 ms entre frames
+        timer = new Timer(30, this);
         timer.start();
     }
 
-    // Genera 6 cuadrados con posiciones aleatorias sin superposición y velocidades aleatorias
     private void crearCuadradosAleatorios() {
+        numActivos = 0;
         for (int i = 0; i < NUM_SQUARES; i++) {
             int intentos = 0;
             boolean valido;
@@ -66,58 +45,46 @@ public class MovimientoCuadrado extends JPanel implements ActionListener {
                 valido = true;
                 x = (int) (Math.random() * (AREA_SIZE - SIZE));
                 y = (int) (Math.random() * (AREA_SIZE - SIZE));
-                // Verificar que no se superponga con cuadrados ya creados
-                for (Square otro : squares) {
-                    if (hayColisionInicial(x, y, otro)) {
+                for (int j = 0; j < numActivos; j++) {
+                    Square otro = squares[j];
+                    if (Math.abs(x - otro.getX()) < SIZE && Math.abs(y - otro.getY()) < SIZE) {
                         valido = false;
                         break;
                     }
                 }
                 intentos++;
-                if (intentos > 1000) break; // Evitar bucle infinito
+                if (intentos > 1000) break;
             } while (!valido);
 
-            // Velocidad con dirección aleatoria (misma magnitud)
             double angulo = Math.random() * 2 * Math.PI;
             int vx = (int) (SPEED * Math.cos(angulo));
             int vy = (int) (SPEED * Math.sin(angulo));
-            // Asegurar que no sea cero (en caso de redondeo)
-            if (vx == 0 && vy == 0) {
-                vx = SPEED;
-            }
+            if (vx == 0 && vy == 0) vx = SPEED;
 
             Color color = new Color((int) (Math.random() * 256), (int) (Math.random() * 256), (int) (Math.random() * 256));
-            squares.add(new Square(x, y, vx, vy, color, INITIAL_LIVES, SIZE));
+            squares[numActivos] = new Square(x, y, vx, vy, color, INITIAL_LIVES, SIZE);
+            numActivos++;
         }
-    }
-
-    // Verifica si un nuevo cuadrado en (x,y) colisiona con uno existente (usando tamaño inicial)
-    private boolean hayColisionInicial(int x, int y, Square otro) {
-        return (Math.abs(x - otro.x) < SIZE) && (Math.abs(y - otro.y) < SIZE);
     }
 
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
 
-        // 1. Dibujar el fondo blanco
-        // 2. Dibujar los cuadrados (desplazados por el borde)
-        for (Square sq : squares) {
-            g.setColor(sq.color);
-            g.fillRect(sq.x + BORDER, sq.y + BORDER, sq.tamanoActual, sq.tamanoActual);
+        for (int i = 0; i < numActivos; i++) {
+            Square sq = squares[i];
+            g.setColor(sq.getColor());
+            g.fillRect(sq.getX() + BORDER, sq.getY() + BORDER, sq.getTamanoActual(), sq.getTamanoActual());
         }
 
-        // 3. Dibujar el marco negro alrededor del área de juego
         g.setColor(Color.BLACK);
         g.drawRect(0, 0, AREA_SIZE + BORDER, AREA_SIZE + BORDER);
 
-        // 4. Dibujar las estadísticas debajo del marco (verticalmente)
         dibujarEstadisticas(g);
     }
 
-    // Dibuja las barras de vida de cada cuadrado en la parte inferior, una debajo de otra
     private void dibujarEstadisticas(Graphics g) {
-        int statsY = AREA_SIZE + 2 * BORDER + 20; // Posición Y inicial de las estadísticas
+        int statsY = AREA_SIZE + 2 * BORDER + 20;
         int barWidth = 200;
         int barHeight = 25;
         int spacing = 10;
@@ -126,214 +93,161 @@ public class MovimientoCuadrado extends JPanel implements ActionListener {
         g.setColor(Color.BLACK);
         g.drawString("Vidas restantes:", startX, statsY - 10);
 
-        int i = 0;
-        for (Square sq : squares) {
+        for (int i = 0; i < numActivos; i++) {
+            Square sq = squares[i];
             int x = startX;
             int y = statsY + i * (barHeight + spacing);
 
-            // Fondo de la barra (gris)
             g.setColor(Color.LIGHT_GRAY);
             g.fillRect(x, y, barWidth, barHeight);
 
-            // Barra de progreso (color del cuadrado) proporcional a las vidas (escala lineal personalizada)
-            g.setColor(sq.color);
-            // Calcular ancho proporcional: desde 30 vidas (tamaño completo) hasta 1 vida (1/10 del ancho)
-            double proporcion = ((sq.vidas - 1) * (1.0 - 0.1) / (INITIAL_LIVES - 1)) + 0.1;
+            g.setColor(sq.getColor());
+            double proporcion = ((sq.getVidas() - 1) * (1.0 - 0.1) / (INITIAL_LIVES - 1)) + 0.1;
             int liveWidth = (int) (barWidth * proporcion);
             g.fillRect(x, y, liveWidth, barHeight);
 
-            // Borde negro de la barra
             g.setColor(Color.BLACK);
             g.drawRect(x, y, barWidth, barHeight);
-
-            // Número de vidas
-            g.drawString(String.valueOf(sq.vidas), x + barWidth + 5, y + barHeight / 2 + 5);
-
-            i++;
-            if (i >= 6) break; // Máximo 6 cuadrados
+            g.drawString(String.valueOf(sq.getVidas()), x + barWidth + 5, y + barHeight / 2 + 5);
         }
     }
 
     @Override
     public void actionPerformed(ActionEvent e) {
-    // Si estamos en animación de victoria, solo actualizamos la expansión
-    if (animacionVictoria) {
-        // Incrementar progreso
-        progresoVictoria += VEL_ANIMACION;
-        if (progresoVictoria >= 1.0) {
-            progresoVictoria = 1.0;
-            // Al llegar al final, aseguramos los valores definitivos
-            ganador.x = 0;
-            ganador.y = 0;
-            ganador.tamanoActual = AREA_SIZE;
-            // Opcional: detener el timer si ya no quieres que haga nada
-            // timer.stop();
-        } else {
-            // Interpolación lineal
-            ganador.x = (int) (ganadorXIni + (0 - ganadorXIni) * progresoVictoria);
-            ganador.y = (int) (ganadorYIni + (0 - ganadorYIni) * progresoVictoria);
-            ganador.tamanoActual = (int) (ganadorTamIni + (AREA_SIZE - ganadorTamIni) * progresoVictoria);
+        if (animacionVictoria) {
+            progresoVictoria += VEL_ANIMACION;
+            if (progresoVictoria >= 1.0) {
+                progresoVictoria = 1.0;
+                ganador.setX(0);
+                ganador.setY(0);
+                ganador.setTamanoActual(AREA_SIZE);
+            } else {
+                ganador.setX((int) (ganadorXIni + (0 - ganadorXIni) * progresoVictoria));
+                ganador.setY((int) (ganadorYIni + (0 - ganadorYIni) * progresoVictoria));
+                ganador.setTamanoActual((int) (ganadorTamIni + (AREA_SIZE - ganadorTamIni) * progresoVictoria));
+            }
+            repaint();
+            return;
         }
-        repaint();
-        return; // Salimos, no ejecutamos el resto del movimiento
-    }
 
-    // Mover todos los cuadrados
-    for (Square sq : squares) {
-        sq.x += sq.vx;
-        sq.y += sq.vy;
-    }
+        for (int i = 0; i < numActivos; i++) {
+            squares[i].mover();
+        }
 
-    // Rebote con las paredes (límites lógicos 0..AREA_SIZE)
-    for (Square sq : squares) {
-        // Pared izquierda
-        if (sq.x < 0) {
-            sq.x = 0;
-            sq.vx = -sq.vx;
-        }
-        // Pared derecha
-        if (sq.x + sq.tamanoActual > AREA_SIZE) {
-            sq.x = AREA_SIZE - sq.tamanoActual;
-            sq.vx = -sq.vx;
-        }
-        // Pared superior
-        if (sq.y < 0) {
-            sq.y = 0;
-            sq.vy = -sq.vy;
-        }
-        // Pared inferior
-        if (sq.y + sq.tamanoActual > AREA_SIZE) {
-            sq.y = AREA_SIZE - sq.tamanoActual;
-            sq.vy = -sq.vy;
-        }
-    }
-
-    // Detectar y procesar colisiones entre cuadrados
-    for (int i = 0; i < squares.size(); i++) {
-        for (int j = i + 1; j < squares.size(); j++) {
-            Square a = squares.get(i);
-            Square b = squares.get(j);
-            if (hayColision(a, b)) {
-                procesarColision(a, b);
+        for (int i = 0; i < numActivos; i++) {
+            Square sq = squares[i];
+            if (sq.getX() < 0) {
+                sq.setX(0);
+                sq.rebotarX();
+            }
+            if (sq.getX() + sq.getTamanoActual() > AREA_SIZE) {
+                sq.setX(AREA_SIZE - sq.getTamanoActual());
+                sq.rebotarX();
+            }
+            if (sq.getY() < 0) {
+                sq.setY(0);
+                sq.rebotarY();
+            }
+            if (sq.getY() + sq.getTamanoActual() > AREA_SIZE) {
+                sq.setY(AREA_SIZE - sq.getTamanoActual());
+                sq.rebotarY();
             }
         }
-    }
 
-    // Eliminar cuadrados con vidas <= 0
-    Iterator<Square> it = squares.iterator();
-    while (it.hasNext()) {
-        Square sq = it.next();
-        if (sq.vidas <= 0) {
-            it.remove();
+        for (int i = 0; i < numActivos; i++) {
+            for (int j = i + 1; j < numActivos; j++) {
+                Square a = squares[i];
+                Square b = squares[j];
+                if (hayColision(a, b)) {
+                    procesarColision(a, b);
+                }
+            }
         }
+
+        int nuevosActivos = 0;
+        for (int i = 0; i < numActivos; i++) {
+            Square sq = squares[i];
+            if (sq.getVidas() > 0) {
+                squares[nuevosActivos] = sq;
+                nuevosActivos++;
+            }
+        }
+        numActivos = nuevosActivos;
+
+        if (numActivos == 1 && !animacionVictoria) {
+            ganador = squares[0];
+            ganadorXIni = ganador.getX();
+            ganadorYIni = ganador.getY();
+            ganadorTamIni = ganador.getTamanoActual();
+            animacionVictoria = true;
+            progresoVictoria = 0.0;
+        }
+
+        repaint();
     }
 
-    // Verificar si solo queda un cuadrado (victoria)
-    if (squares.size() == 1 && !animacionVictoria) {
-        // Iniciar animación de victoria
-        ganador = squares.get(0);
-        // Guardar estado inicial
-        ganadorXIni = ganador.x;
-        ganadorYIni = ganador.y;
-        ganadorTamIni = ganador.tamanoActual;
-        // Activar animación
-        animacionVictoria = true;
-        progresoVictoria = 0.0;
-    }
-
-    repaint();
-    }
-    
-
-    // Verifica si dos cuadrados se superponen (usando sus tamaños actuales)
     private boolean hayColision(Square a, Square b) {
-        return (a.x < b.x + b.tamanoActual &&
-                b.x < a.x + a.tamanoActual &&
-                a.y < b.y + b.tamanoActual &&
-                b.y < a.y + a.tamanoActual);
+        return (a.getX() < b.getX() + b.getTamanoActual() &&
+                b.getX() < a.getX() + a.getTamanoActual() &&
+                a.getY() < b.getY() + b.getTamanoActual() &&
+                b.getY() < a.getY() + a.getTamanoActual());
     }
 
-    // Procesa la colisión entre dos cuadrados: reduce vidas, ajusta tamaño y posición, invierte velocidades y separa
     private void procesarColision(Square a, Square b) {
-        // Invertir velocidades (rebote)
-        a.vx = -a.vx;
-        a.vy = -a.vy;
-        b.vx = -b.vx;
-        b.vy = -b.vy;
+        a.rebotarX();
+        a.rebotarY();
+        b.rebotarX();
+        b.rebotarY();
 
-        // Reducir vidas (mínimo 0)
-        a.vidas = Math.max(0, a.vidas - 1);
-        b.vidas = Math.max(0, b.vidas - 1);
+        a.reducirVida();
+        b.reducirVida();
 
-        // Guardar centros antes de cambiar tamaño
-        int centroAx = a.x + a.tamanoActual / 2;
-        int centroAy = a.y + a.tamanoActual / 2;
-        int centroBx = b.x + b.tamanoActual / 2;
-        int centroBy = b.y + b.tamanoActual / 2;
+        int centroAx = a.getX() + a.getTamanoActual() / 2;
+        int centroAy = a.getY() + a.getTamanoActual() / 2;
+        int centroBx = b.getX() + b.getTamanoActual() / 2;
+        int centroBy = b.getY() + b.getTamanoActual() / 2;
 
-        // Actualizar tamaños según vidas con escala lineal: desde SIZE (vidas=30) hasta SIZE/10 (vidas=1)
-        a.tamanoActual = calcularTamanio(a.vidas);
-        b.tamanoActual = calcularTamanio(b.vidas);
+        a.setX(centroAx - a.getTamanoActual() / 2);
+        a.setY(centroAy - a.getTamanoActual() / 2);
+        b.setX(centroBx - b.getTamanoActual() / 2);
+        b.setY(centroBy - b.getTamanoActual() / 2);
 
-        // Reubicar para mantener el centro
-        a.x = centroAx - a.tamanoActual / 2;
-        a.y = centroAy - a.tamanoActual / 2;
-        b.x = centroBx - b.tamanoActual / 2;
-        b.y = centroBy - b.tamanoActual / 2;
+        a.setX(Math.max(0, Math.min(a.getX(), AREA_SIZE - a.getTamanoActual())));
+        a.setY(Math.max(0, Math.min(a.getY(), AREA_SIZE - a.getTamanoActual())));
+        b.setX(Math.max(0, Math.min(b.getX(), AREA_SIZE - b.getTamanoActual())));
+        b.setY(Math.max(0, Math.min(b.getY(), AREA_SIZE - b.getTamanoActual())));
 
-        // Asegurar que no se salgan de los bordes después del reajuste
-        a.x = Math.max(0, Math.min(a.x, AREA_SIZE - a.tamanoActual));
-        a.y = Math.max(0, Math.min(a.y, AREA_SIZE - a.tamanoActual));
-        b.x = Math.max(0, Math.min(b.x, AREA_SIZE - b.tamanoActual));
-        b.y = Math.max(0, Math.min(b.y, AREA_SIZE - b.tamanoActual));
-
-        // Separar para evitar superposición residual (si aún están superpuestos)
         if (hayColision(a, b)) {
             resolverColision(a, b);
         }
     }
 
-    // Calcula el tamaño según las vidas (lineal entre SIZE y SIZE/10)
-    private int calcularTamanio(int vidas) {
-        if (vidas <= 0) return 0;
-        if (vidas >= INITIAL_LIVES) return SIZE;
-        // Fórmula lineal: desde SIZE (vidas=30) hasta SIZE/10 (vidas=1)
-        double proporcion = ((vidas - 1) * (1.0 - 0.1) / (INITIAL_LIVES - 1)) + 0.1;
-        int tam = (int) (SIZE * proporcion);
-        return Math.max(1, tam); // Mínimo 1 píxel para que se vea
-    }
-
-    // Separa dos cuadrados que aún se superponen y ajusta velocidades (ya invertidas)
     private void resolverColision(Square a, Square b) {
-        // Calcular superposición en cada eje
-        int overlapX = Math.min(a.x + a.tamanoActual, b.x + b.tamanoActual) - Math.max(a.x, b.x);
-        int overlapY = Math.min(a.y + a.tamanoActual, b.y + b.tamanoActual) - Math.max(a.y, b.y);
+        int overlapX = Math.min(a.getX() + a.getTamanoActual(), b.getX() + b.getTamanoActual()) - Math.max(a.getX(), b.getX());
+        int overlapY = Math.min(a.getY() + a.getTamanoActual(), b.getY() + b.getTamanoActual()) - Math.max(a.getY(), b.getY());
 
         if (overlapX < overlapY) {
-            // Separar en horizontal
-            if (a.x < b.x) {
-                a.x -= overlapX / 2;
-                b.x += overlapX / 2;
+            if (a.getX() < b.getX()) {
+                a.setX(a.getX() - overlapX / 2);
+                b.setX(b.getX() + overlapX / 2);
             } else {
-                a.x += overlapX / 2;
-                b.x -= overlapX / 2;
+                a.setX(a.getX() + overlapX / 2);
+                b.setX(b.getX() - overlapX / 2);
             }
         } else {
-            // Separar en vertical
-            if (a.y < b.y) {
-                a.y -= overlapY / 2;
-                b.y += overlapY / 2;
+            if (a.getY() < b.getY()) {
+                a.setY(a.getY() - overlapY / 2);
+                b.setY(b.getY() + overlapY / 2);
             } else {
-                a.y += overlapY / 2;
-                b.y -= overlapY / 2;
+                a.setY(a.getY() + overlapY / 2);
+                b.setY(b.getY() - overlapY / 2);
             }
         }
 
-        // Ajustar para que no se salgan de los bordes
-        a.x = Math.max(0, Math.min(a.x, AREA_SIZE - a.tamanoActual));
-        a.y = Math.max(0, Math.min(a.y, AREA_SIZE - a.tamanoActual));
-        b.x = Math.max(0, Math.min(b.x, AREA_SIZE - b.tamanoActual));
-        b.y = Math.max(0, Math.min(b.y, AREA_SIZE - b.tamanoActual));
+        a.setX(Math.max(0, Math.min(a.getX(), AREA_SIZE - a.getTamanoActual())));
+        a.setY(Math.max(0, Math.min(a.getY(), AREA_SIZE - a.getTamanoActual())));
+        b.setX(Math.max(0, Math.min(b.getX(), AREA_SIZE - b.getTamanoActual())));
+        b.setY(Math.max(0, Math.min(b.getY(), AREA_SIZE - b.getTamanoActual())));
     }
 
     public static void main(String[] args) {
