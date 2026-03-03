@@ -1,56 +1,62 @@
 import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-class Main {
+class ThreadPoolOrdenaArreglo {
     public static void main(String[] args) {
-        // Verificar que se reciban exactamente dos parámetros: m y n
-        if (args.length != 2) {
-            System.out.println("Uso: java Main <m> <n>");
-            System.out.println("  m: número de listas internas");
-            System.out.println("  n: cantidad de CURPs por lista");
+        if (args.length != 3) {
+            System.out.println("Uso: java ThreadPoolOrdenaArreglo <m> <n> <poolSize>");
             return;
         }
-
         int m = Integer.parseInt(args[0]);
         int n = Integer.parseInt(args[1]);
+        int poolSize = Integer.parseInt(args[2]);
 
+        // Generar listas originales
         ArrayList<ArrayList<String>> listaDeListas = new ArrayList<>();
-
         for (int i = 0; i < m; i++) {
-            ArrayList<String> listaInterna = new ArrayList<>();
+            ArrayList<String> lista = new ArrayList<>();
             for (int j = 0; j < n; j++) {
-                listaInterna.add(getCURP());
+                lista.add(getCURP());
             }
-            listaDeListas.add(listaInterna);
+            listaDeListas.add(lista);
         }
 
-        // 1. Imprimir todas las listas originales
-        System.out.println("\n=== LISTAS ORIGINALES ===");
+        // Crear pool del tamaño indicado
+        ExecutorService pool = Executors.newFixedThreadPool(poolSize);
+
+        // Enviar tareas de ordenamiento
         for (int i = 0; i < m; i++) {
-            System.out.println("\n--- Lista " + (i + 1) + " (original) ---");
-            System.out.println(listaDeListas.get(i));
+            final ArrayList<String> original = listaDeListas.get(i);
+            pool.submit(() -> {
+                ArrayList<String> ordenada = new ArrayList<>();
+                for (String curp : original) {
+                    insertarOrdenado(ordenada, curp);
+                }
+                // No se imprime nada
+            });
         }
 
-        // 2. Imprimir todas las listas ordenadas
-        System.out.println("\n=== LISTAS ORDENADAS (por primeros 4 caracteres) ===");
-        for (int i = 0; i < m; i++) {
-            System.out.println("\n--- Lista " + (i + 1) + " (ordenada) ---");
-            ArrayList<String> ordenada = obtenerOrdenada(listaDeListas.get(i));
-            System.out.println(ordenada);
+        pool.shutdown();
+        try {
+            pool.awaitTermination(1, TimeUnit.HOURS); // Espera hasta 1 hora
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
     }
+
     static void insertarOrdenado(ArrayList<String> lista, String nuevaCURP) {
-        int posicion = 0;
-        while (posicion < lista.size()) {
-            String actual = lista.get(posicion);
-            String subActual = actual.substring(0, 4);
-            String subNueva = nuevaCURP.substring(0, 4);
-            if (subNueva.compareTo(subActual) < 0) {
+        int pos = 0;
+        while (pos < lista.size()) {
+            String actual = lista.get(pos);
+            if (nuevaCURP.substring(0, 4).compareTo(actual.substring(0, 4)) < 0)
                 break;
-            }
-            posicion++;
+            pos++;
         }
-        lista.add(posicion, nuevaCURP);
+        lista.add(pos, nuevaCURP);
     }
+
     static String getCURP() {
         String Letra = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
         String Numero = "0123456789";
@@ -58,9 +64,7 @@ class Main {
         String[] Entidad = {"AS", "BC", "BS", "CC", "CS", "CH", "CL", "CM", "DF", "DG", "GT",
                 "GR", "HG", "JC", "MC", "MN", "MS", "NT", "NL", "OC", "PL", "QT", "QR", "SP",
                 "SL", "SR", "TC", "TL", "TS", "VZ", "YN", "ZS"};
-
         StringBuilder sb = new StringBuilder(18);
-
         for (int i = 0; i < 4; i++) {
             int indice = (int) (Letra.length() * Math.random());
             sb.append(Letra.charAt(indice));
@@ -82,12 +86,5 @@ class Main {
             sb.append(Numero.charAt(indice));
         }
         return sb.toString();
-    }
-    static ArrayList<String> obtenerOrdenada(ArrayList<String> listaOriginal) {
-        ArrayList<String> listaOrdenada = new ArrayList<>();
-        for (String curp : listaOriginal) {
-            insertarOrdenado(listaOrdenada, curp);
-        }
-        return listaOrdenada;
     }
 }
