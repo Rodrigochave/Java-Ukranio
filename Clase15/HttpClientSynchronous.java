@@ -54,6 +54,11 @@ public class HttpClientSynchronous {
         System.out.println("\n--- Nuevo mapa con Set-Cookie añadidos ---");
         newHeadersMap.forEach((key, values) -> System.out.println(key + ": " + values));
 
+        // Imprimir el mismo mapa pero ordenado alfabéticamente por clave usando Stream
+        System.out.println("\n--- Mismos headers ordenados por clave ---");
+        newHeadersMap.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> System.out.println(entry.getKey() + ": " + entry.getValue()));
         System.out.println(response.statusCode());
 
         System.out.println(response.body());
