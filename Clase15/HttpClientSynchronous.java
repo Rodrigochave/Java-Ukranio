@@ -1,4 +1,3 @@
-
 package com.mkyong.java11.jep321;
 
 import java.io.IOException;
@@ -11,6 +10,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Iterator;
+import java.util.HashMap;      // <-- Nuevo import
+import java.util.Arrays;       // <-- Nuevo import
 
 public class HttpClientSynchronous {
 
@@ -24,12 +25,11 @@ public class HttpClientSynchronous {
         HttpRequest request = HttpRequest.newBuilder()
                 .GET()
                 .uri(URI.create("https://httpbin.org/get"))
-                .setHeader("User-Agent", "Java 11 HttpClient Bot") // add request header
+                .setHeader("User-Agent", "Java 11 HttpClient Bot")
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-        // print response headers
         HttpHeaders headers = response.headers();
         Map<String, List<String>> headersMap = headers.map();
         Iterator<Map.Entry<String, List<String>>> iterator = headersMap.entrySet().iterator();
@@ -37,17 +37,25 @@ public class HttpClientSynchronous {
             Map.Entry<String, List<String>> entry = iterator.next();
             String key = entry.getKey();
             List<String> values = entry.getValue();
-            // Recorremos la lista de valores individualmente
             for (String value : values) {
                 System.out.println(key + ": " + value);
             }
         }
-        // print status code
+
+        // Copiar el mapa original a un nuevo mapa mutable
+        Map<String, List<String>> newHeadersMap = new HashMap<>(headersMap);
+
+        // Agregar los headers Set-Cookie
+        List<String> setCookieValues = Arrays.asList("Max-Age=0", "id=123", "theme=dark");
+
+        newHeadersMap.put("Set-Cookie", setCookieValues);
+
+        // Imprimir el nuevo mapa usando forEach
+        System.out.println("\n--- Nuevo mapa con Set-Cookie añadidos ---");
+        newHeadersMap.forEach((key, values) -> System.out.println(key + ": " + values));
+
         System.out.println(response.statusCode());
 
-        // print response body
         System.out.println(response.body());
-
     }
-
 }
