@@ -8,6 +8,9 @@ import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.Iterator;
 
 public class HttpClientSynchronous {
 
@@ -28,8 +31,17 @@ public class HttpClientSynchronous {
 
         // print response headers
         HttpHeaders headers = response.headers();
-        headers.map().forEach((k, v) -> System.out.println(k + ":" + v));
-
+        Map<String, List<String>> headersMap = headers.map();
+        Iterator<Map.Entry<String, List<String>>> iterator = headersMap.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, List<String>> entry = iterator.next();
+            String key = entry.getKey();
+            List<String> values = entry.getValue();
+            // Recorremos la lista de valores individualmente
+            for (String value : values) {
+                System.out.println(key + ": " + value);
+            }
+        }
         // print status code
         System.out.println(response.statusCode());
 
