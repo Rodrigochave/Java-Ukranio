@@ -1,3 +1,4 @@
+//Proyecto 3        Nombre: Chavez Aquiagual Rodrigo    Grupo:7CM4
 import com.googlecode.lanterna.TerminalSize;
 import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.graphics.TextGraphics;
@@ -34,9 +35,10 @@ public class BitcoinTerminal {
     private static volatile boolean running = true;
     private static Thread actualizador;
     private static volatile boolean pausarActualizador = false;
-
+    private static String fechaSimulacion; // fecha del dataset
     public static void main(String[] args) {
         cargarPrecios();
+        cargarFecha();
         iniciarLectorMinuto();
 
         DefaultTerminalFactory terminalFactory = new DefaultTerminalFactory();
@@ -263,7 +265,14 @@ public class BitcoinTerminal {
             prices[i] = list.get(i);
         }
     }
-
+    private static void cargarFecha() {
+        try (BufferedReader br = new BufferedReader(new FileReader("fecha.txt"))) {
+            fechaSimulacion = br.readLine().trim();
+        } catch (IOException e) {
+            // Fallback a fecha actual si no existe el archivo
+            fechaSimulacion = LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMMM yyyy"));
+        }
+    }
     private static void iniciarLectorMinuto() {
         Thread lector = new Thread(() -> {
             while (running) {
@@ -300,8 +309,7 @@ public class BitcoinTerminal {
         int hora = min / 60;
         int minuto = min % 60;
         String horaStr = String.format("%02d:%02d", hora, minuto);
-        String fechaStr = LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMMM yyyy"));
-
+        String fechaStr = fechaSimulacion;
         tg.setForegroundColor(TextColor.ANSI.YELLOW);
         tg.putString(2, 1, "Precio del Bitcoin: USD$ " + precioStr);
         tg.putString(2, 2, "Fecha: " + fechaStr);
