@@ -5,28 +5,17 @@ import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.math.BigInteger;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.Executors;
 
 public class WebServer2 {
-    private static final String TASK_ENDPOINT = "/searchtoken";   // Cambiado a /searchtoken
+    private static final String TASK_ENDPOINT = "/task";
     private static final String STATUS_ENDPOINT = "/status";
 
     private final int port;
     private HttpServer server;
-
-    // Mapa de palabras a número de apariciones (según la captura)
-    private static final Map<String, Integer> WORD_COUNTS = new HashMap<>();
-    static {
-        WORD_COUNTS.put("IPN", 105);
-        WORD_COUNTS.put("SAL", 1);
-        WORD_COUNTS.put("MAS", 6);
-        WORD_COUNTS.put("PEZ", 104);
-        WORD_COUNTS.put("SOL", 10);
-    }
 
     public static void main(String[] args) {
         int serverPort = 8080;
@@ -83,35 +72,7 @@ public class WebServer2 {
         long startTime = System.nanoTime();
 
         byte[] requestBytes = exchange.getRequestBody().readAllBytes();
-        String bodyString = new String(requestBytes);
-
-        // Extraer el primer número para determinar el tiempo de procesamiento (sleep)
-        long sleepTime = 0;
-        String word = "";
-        try {
-            String[] parts = bodyString.split(",");
-            if (parts.length >= 1) {
-                sleepTime = Math.min(Long.parseLong(parts[0].trim()) / 1000, 30000);
-            }
-            if (parts.length >= 2) {
-                word = parts[1].trim();
-            }
-        } catch (NumberFormatException e) {
-            sleepTime = 1000;
-        }
-
-        System.out.println("[" + Thread.currentThread().getName() + "] Procesando tarea: " + bodyString + " (sleep " + sleepTime + " ms)");
-
-        // Simular procesamiento con duración variable
-        try {
-            Thread.sleep(sleepTime);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        // Obtener el número de apariciones según el mapa
-        int count = WORD_COUNTS.getOrDefault(word, 0);
-        String response = String.valueOf(count);
+        byte[] responseBytes = calculateResponse(requestBytes);
 
         long finishTime = System.nanoTime();
 
@@ -120,7 +81,21 @@ public class WebServer2 {
             exchange.getResponseHeaders().put("X-Debug-Info", Arrays.asList(debugMessage));
         }
 
-        sendResponse(response.getBytes(), exchange);
+        sendResponse(responseBytes, exchange);
+    }
+
+    private byte[] calculateResponse(byte[] requestBytes) {
+        String bodyString = new String(requestBytes);
+        String[] stringNumbers = bodyString.split(",");
+
+        BigInteger result = BigInteger.ONE;
+
+        for (String number : stringNumbers) {
+            BigInteger bigInteger = new BigInteger(number.trim());
+            result = result.multiply(bigInteger);
+        }
+
+        return String.format("El resultado de la multiplicación es %s\n", result).getBytes();
     }
 
     private void handleStatusCheckRequest(HttpExchange exchange) throws IOException {

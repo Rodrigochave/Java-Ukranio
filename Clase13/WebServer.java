@@ -122,15 +122,15 @@ public class WebServer {
         return String.format("El resultado de la multiplicación es %s\n", result).getBytes();
     }
 
-    private void handleStatusCheckRequest(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equalsIgnoreCase("get")) {
-            exchange.close();
-            return;
-        }
-
-        String responseMessage = "El servidor está vivo\n";
-        sendResponse(responseMessage.getBytes(), exchange);
+private void handleStatusCheckRequest(HttpExchange exchange) throws IOException {
+    if (!exchange.getRequestMethod().equalsIgnoreCase("get")) {
+        exchange.close();
+        return;
     }
+
+    String responseMessage = "El servidor está vivo en el puerto " + port + "\n";
+    sendResponse(responseMessage.getBytes(), exchange);
+}
 
     private void sendResponse(byte[] responseBytes, HttpExchange exchange) throws IOException {
         exchange.sendResponseHeaders(200, responseBytes.length);
