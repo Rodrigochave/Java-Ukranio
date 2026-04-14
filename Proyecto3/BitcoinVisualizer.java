@@ -1,3 +1,4 @@
+//Proyecto 3        Nombre: Chavez Aquiagual Rodrigo    Grupo:7CM4
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -22,9 +23,10 @@ public class BitcoinVisualizer extends JFrame {
     private boolean running = false;          
 
     private JButton startPauseButton;
-
+    private String fechaSimulacion; // fecha del dataset
     public BitcoinVisualizer() {
-        loadData();                 
+        loadData(); 
+        cargarFecha();                
         initUI();                   
         startTimer();               
         escribirMinutoActual();
@@ -70,6 +72,15 @@ public class BitcoinVisualizer extends JFrame {
             if (prices[i] < minPrice) minPrice = prices[i];
             if (prices[i] > maxPrice) maxPrice = prices[i];
         }
+    }
+
+    private void cargarFecha() {
+    try (BufferedReader br = new BufferedReader(new FileReader("fecha.txt"))) {
+        fechaSimulacion = br.readLine().trim();
+    } catch (IOException e) {
+        // Fallback a fecha actual
+        fechaSimulacion = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+    }
     }
 
     private void escribirMinutoActual() {
@@ -133,8 +144,7 @@ public class BitcoinVisualizer extends JFrame {
         private int topMargin = 30;
         private int bottomMargin = 70;    // más espacio para fecha y hora
 
-        private final String todayStr = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
-
+        private final String todayStr = fechaSimulacion; 
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
@@ -185,7 +195,7 @@ public class BitcoinVisualizer extends JFrame {
             g2.drawString("Tiempo (horas)", w / 2 - 50, h - 20);
             g2.drawString("Precio (USD)", 15, 30);
 
-            g2.drawString("Fecha: " + todayStr, leftX, h - 10);
+            g2.drawString("Fecha: " + fechaSimulacion, leftX, h - 10);
 
             g2.setFont(new Font("SansSerif", Font.PLAIN, 10));
             for (int m = firstHourMinute; m <= endMinute; m += 60) {
@@ -256,7 +266,7 @@ public class BitcoinVisualizer extends JFrame {
             return new Dimension(800, 400);
         }
     }
-    
+
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             new BitcoinVisualizer().setVisible(true);
