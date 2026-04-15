@@ -46,7 +46,6 @@ private void handleDispatchRequest(HttpExchange exchange) throws IOException {
         return;
     }
 
-    // Leer el hash del cuerpo de la petición
     byte[] requestBody = exchange.getRequestBody().readAllBytes();
     String hashObjetivo = new String(requestBody).trim();
 
@@ -57,23 +56,18 @@ private void handleDispatchRequest(HttpExchange exchange) throws IOException {
 
     System.out.println("Hash recibido: " + hashObjetivo);
 
-    // --- INICIO DE MEDICIÓN DE TIEMPO ---
-    long startTime = System.currentTimeMillis();
+    long startTime = System.currentTimeMillis();   // INICIO MEDICIÓN
 
-    // Generar las 26 tareas
+    // Generar tareas
     List<String> tareas = new ArrayList<>();
     for (char letra = 'a'; letra <= 'z'; letra++) {
         tareas.add(hashObjetivo + "," + letra);
     }
 
-    System.out.println("Generadas " + tareas.size() + " tareas. Enviando a workers...");
-
-    // Crear aggregator y enviar tareas
     Aggregator aggregator = new Aggregator();
     List<String> workers = Arrays.asList(WORKER_ADDRESS_1, WORKER_ADDRESS_2);
     List<String> resultados = aggregator.sendTasksToWorkersDynamic(workers, tareas);
 
-    // Buscar la primera respuesta que no sea "NULL"
     String passwordEncontrada = null;
     for (String res : resultados) {
         if (res != null && !res.equals("NULL")) {
@@ -82,13 +76,9 @@ private void handleDispatchRequest(HttpExchange exchange) throws IOException {
         }
     }
 
-    // --- FIN DE MEDICIÓN DE TIEMPO ---
-    long endTime = System.currentTimeMillis();
+    long endTime = System.currentTimeMillis();     // FIN MEDICIÓN
     long elapsedMs = endTime - startTime;
 
-    System.out.println("Tiempo total de despacho: " + elapsedMs + " ms");
-
-    // Construir respuesta incluyendo el tiempo
     String respuesta;
     if (passwordEncontrada != null) {
         respuesta = "Contraseña: " + passwordEncontrada + " | Tiempo: " + elapsedMs + " ms";
