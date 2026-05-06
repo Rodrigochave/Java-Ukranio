@@ -11,29 +11,20 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.*;
-import java.util.stream.Collectors;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/**
- * Worker que procesa pares de libros para encontrar frases comunes de n palabras.
- */
 public class Worker {
     private static final String TASK_ENDPOINT = "/task";
     private static final String STATUS_ENDPOINT = "/status";
+    private static final int MAX_CHARS = 500_000;   // estable y suficiente
+    private static final int MAX_MATCHES = 100;     // límite por pareja
 
     private final int port;
     private final String textServerBase;
     private HttpServer server;
 
-    // Pool de hilos para procesamiento interno de tareas
-    private final ExecutorService processingPool = Executors.newFixedThreadPool(
-            Runtime.getRuntime().availableProcessors()
-    );
-
-    // Cliente HTTP para obtener textos del TextServer
     private final HttpClient httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(java.time.Duration.ofSeconds(10))
@@ -41,7 +32,7 @@ public class Worker {
 
     public static void main(String[] args) {
         int port = 8080;
-        String textServer = "http://localhost:8081"; // valor por defecto
+        String textServer = "http://localhost:8081";
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -65,8 +56,8 @@ public class Worker {
 
     public Worker(int port, String textServerBase) {
         this.port = port;
-        this.textServerBase = textServerBase.endsWith("/") 
-                ? textServerBase.substring(0, textServerBase.length()-1) 
+        this.textServerBase = textServerBase.endsWith("/")
+                ? textServerBase.substring(0, textServerBase.length() - 1)
                 : textServerBase;
     }
 
@@ -74,14 +65,14 @@ public class Worker {
         try {
             server = HttpServer.create(new InetSocketAddress(port), 0);
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Error: puerto " + port + " ya está en uso");
             return;
         }
 
         server.createContext(TASK_ENDPOINT, this::handleTask);
         server.createContext(STATUS_ENDPOINT, this::handleStatus);
 
-        server.setExecutor(Executors.newFixedThreadPool(4));
+        server.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(4));
         server.start();
     }
 
@@ -102,44 +93,50 @@ public class Worker {
             JSONArray pairsArray = input.getJSONArray("pairs");
             int n = input.getInt("n");
 
-            List<Future<List<JSONObject>>> futures = new ArrayList<>();
+            // --- Cachés GLOBALES para TODA la tarea ---
+            Map<String, String> textCache = new HashMap<>();
+            Map<String, Map<String, List<Integer>>> ngramCache = new HashMap<>();
 
+            JSONArray allMatches = new JSONArray();
+
+            // Procesar secuencialmente, reutilizando libros ya descargados y cacheados
             for (int i = 0; i < pairsArray.length(); i++) {
                 JSONObject pairObj = pairsArray.getJSONObject(i);
+
                 String bookA = pairObj.getString("bookA");
                 String bookB = pairObj.getString("bookB");
-                // Leer títulos directamente del JSON (evita llamada extra al TextServer)
                 String titleA = pairObj.optString("titleA", "Sin título");
                 String titleB = pairObj.optString("titleB", "Sin título");
 
-                futures.add(processingPool.submit(() -> processPair(bookA, bookB, titleA, titleB, n)));
-            }
-
-            // Recoger resultados
-            JSONArray allMatches = new JSONArray();
-            for (Future<List<JSONObject>> future : futures) {
                 try {
-                    List<JSONObject> pairMatches = future.get();
-                    allMatches.putAll(pairMatches);
-                } catch (InterruptedException | ExecutionException e) {
-                    e.printStackTrace();
+                    List<JSONObject> matches = processPair(bookA, bookB, titleA, titleB, n,
+                            textCache, ngramCache);
+                    allMatches.putAll(matches);
+                } catch (Exception e) {
+                    System.err.println("Error en par " + bookA + "/" + bookB + ": " + e.getMessage());
                 }
             }
 
             JSONObject response = new JSONObject();
             response.put("matches", allMatches);
+
             byte[] respBytes = response.toString().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
             exchange.sendResponseHeaders(200, respBytes.length);
+
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(respBytes);
             }
+
         } catch (Exception e) {
             e.printStackTrace();
+
             String err = "{\"error\":\"" + e.getMessage() + "\"}";
             byte[] errBytes = err.getBytes(StandardCharsets.UTF_8);
+
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(400, errBytes.length);
+
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(errBytes);
             }
@@ -153,7 +150,9 @@ public class Worker {
             return;
         }
 
-        OperatingSystemMXBean osBean = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+        OperatingSystemMXBean osBean =
+                (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+
         double cpuLoad = osBean.getProcessCpuLoad();
         if (cpuLoad < 0) cpuLoad = 0.0;
 
@@ -164,66 +163,93 @@ public class Worker {
         byte[] respBytes = status.toString().getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(200, respBytes.length);
+
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(respBytes);
         }
     }
 
-    // ========== PROCESAMIENTO DE UN PAR ==========
+    // ========== PROCESAMIENTO (cache global, sin bloques) ==========
 
-    private List<JSONObject> processPair(String bookAId, String bookBId, 
-                                         String titleA, String titleB, int n) throws Exception {
-        // Obtener textos desde el TextServer
-        String textA = getBookText(bookAId);
-        String textB = getBookText(bookBId);
+    private List<JSONObject> processPair(String bookAId, String bookBId,
+                                         String titleA, String titleB, int n,
+                                         Map<String, String> textCache,
+                                         Map<String, Map<String, List<Integer>>> ngramCache)
+            throws Exception {
+        // Obtener o construir mapa de n-gramas para libro A (cache global)
+        Map<String, List<Integer>> mapA = ngramCache.computeIfAbsent(bookAId, id -> {
+            String text = textCache.computeIfAbsent(id, bid -> {
+                try { return getBookText(bid); }
+                catch (Exception e) { throw new RuntimeException(e); }
+            });
+            return buildNgramMap(tokenize(text), n);
+        });
 
-        List<Token> tokensA = tokenize(textA);
-        List<Token> tokensB = tokenize(textB);
-
-        Map<String, List<Integer>> mapA = buildNgramMap(tokensA, n);
-        Map<String, List<Integer>> mapB = buildNgramMap(tokensB, n);
+        // Obtener o construir mapa de n-gramas para libro B (cache global)
+        Map<String, List<Integer>> mapB = ngramCache.computeIfAbsent(bookBId, id -> {
+            String text = textCache.computeIfAbsent(id, bid -> {
+                try { return getBookText(bid); }
+                catch (Exception e) { throw new RuntimeException(e); }
+            });
+            return buildNgramMap(tokenize(text), n);
+        });
 
         List<JSONObject> matches = new ArrayList<>();
+
+        outer:
         for (Map.Entry<String, List<Integer>> entryA : mapA.entrySet()) {
             String phrase = entryA.getKey();
             if (mapB.containsKey(phrase)) {
-                List<Integer> offsetsA = entryA.getValue();
-                List<Integer> offsetsB = mapB.get(phrase);
-                for (int offA : offsetsA) {
-                    for (int offB : offsetsB) {
+                for (int offA : entryA.getValue()) {
+                    for (int offB : mapB.get(phrase)) {
+
                         JSONObject match = new JSONObject();
                         match.put("titleA", titleA);
                         match.put("offsetA", offA);
                         match.put("titleB", titleB);
                         match.put("offsetB", offB);
                         match.put("phrase", phrase);
+
                         matches.add(match);
+                        if (matches.size() >= MAX_MATCHES) {
+                            break outer;
+                        }
                     }
                 }
             }
         }
+
         return matches;
     }
 
-    // ========== COMUNICACIÓN CON TEXT SERVER ==========
+    // ========== TEXT SERVER (con truncado) ==========
 
-    /**
-     * Descarga el texto completo de un libro desde el TextServer.
-     */
     private String getBookText(String bookId) throws IOException, InterruptedException {
         String url = textServerBase + "/books/" + bookId;
+
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .header("User-Agent", "Mozilla/5.0")          // por si acaso
+                .timeout(java.time.Duration.ofSeconds(60))
                 .GET()
                 .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        HttpResponse<String> response =
+                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
         if (response.statusCode() != 200) {
             throw new IOException("Error al obtener libro " + bookId + ": " + response.statusCode());
         }
-        return response.body();
+
+        String fullText = response.body();
+        if (fullText.length() > MAX_CHARS) {
+            System.err.println("Truncando libro " + bookId + " a " + MAX_CHARS + " caracteres");
+            return fullText.substring(0, MAX_CHARS);
+        }
+        return fullText;
     }
 
-    // ========== TOKENIZACIÓN Y N-GRAMAS ==========
+    // ========== TOKENIZACIÓN ==========
 
     private List<Token> tokenize(String text) {
         List<Token> tokens = new ArrayList<>();
@@ -246,9 +272,11 @@ public class Worker {
             }
             pos++;
         }
+
         if (currentWord.length() > 0) {
             tokens.add(new Token(currentWord.toString().toLowerCase(), wordStart));
         }
+
         return tokens;
     }
 
@@ -258,18 +286,20 @@ public class Worker {
 
         for (int i = 0; i <= tokens.size() - n; i++) {
             StringBuilder sb = new StringBuilder();
+
             for (int j = 0; j < n; j++) {
                 if (j > 0) sb.append(" ");
                 sb.append(tokens.get(i + j).word);
             }
+
             String phrase = sb.toString();
             int offset = tokens.get(i).offset;
+
             map.computeIfAbsent(phrase, k -> new ArrayList<>()).add(offset);
         }
+
         return map;
     }
-
-    // ========== CLASE INTERNA ==========
 
     private static class Token {
         final String word;

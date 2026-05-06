@@ -11,10 +11,10 @@ import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 import org.json.JSONArray;
-import org.json.JSONObject;  // asumiendo que usas org.json (simple, sin dependencias extra) o puedes escribir JSON a mano
+import org.json.JSONObject; 
 
 public class TextServer {
-    private static final String BOOKS_DIR = "data/books";
+    private static final String BOOKS_DIR = "data/keepbooks";
     private static final String METADATA_FILE = "data/metadata.json";
 
     private final int port;

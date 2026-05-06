@@ -12,7 +12,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -21,25 +20,21 @@ import org.json.JSONObject;
  * Aplicación Web (coordinador) que distribuye la búsqueda entre 3 Workers.
  */
 public class WebApp {
-    // Endpoints
     private static final String SEARCH_ENDPOINT = "/api/search";
-    private static final String QUERY_STATUS = "/api/query/";   // seguido de queryId/status
-    private static final String QUERY_PAGE = "/api/query/";     // seguido de queryId?page=X
+    private static final String QUERY_STATUS = "/api/query/";
+    private static final String QUERY_PAGE = "/api/query/";
 
     private final int port;
-    private final String textServerUrl;                // ej: http://localhost:8081
-    private final List<String> workerUrls;             // ej: ["http://IP1:8080", ...]
+    private final String textServerUrl;
+    private final List<String> workerUrls;
     private HttpServer server;
 
-    // Ejecutor para tareas de búsqueda en segundo plano
     private final ExecutorService searchExecutor = Executors.newFixedThreadPool(4);
-    // Cliente HTTP síncrono para el TextServer y asíncrono para Workers
     private final HttpClient httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(java.time.Duration.ofSeconds(10))
             .build();
 
-    // Caché de resultados: queryId -> QueryResult
     private final ConcurrentHashMap<String, QueryResult> resultCache = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
@@ -49,7 +44,6 @@ public class WebApp {
         String worker2 = "http://localhost:8080";
         String worker3 = "http://localhost:8080";
 
-        // Parseo sencillo de argumentos: --port 8082 --text-server URL --workers url1,url2,url3
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--port":
@@ -78,8 +72,9 @@ public class WebApp {
 
     public WebApp(int port, String textServerUrl, List<String> workerUrls) {
         this.port = port;
-        this.textServerUrl = textServerUrl.endsWith("/") ? 
-                textServerUrl.substring(0, textServerUrl.length()-1) : textServerUrl;
+        this.textServerUrl = textServerUrl.endsWith("/") 
+                ? textServerUrl.substring(0, textServerUrl.length()-1) 
+                : textServerUrl;
         this.workerUrls = workerUrls;
     }
 
@@ -90,14 +85,11 @@ public class WebApp {
             e.printStackTrace();
             return;
         }
-
         server.createContext(SEARCH_ENDPOINT, this::handleSearch);
-        server.createContext(QUERY_STATUS, this::handleQueryRequest); // captura /api/query/...
+        server.createContext(QUERY_STATUS, this::handleQueryRequest);
         server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
     }
-
-    // ---- Manejo de endpoints ----
 
     private void handleSearch(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestMethod().equalsIgnoreCase("post")) {
@@ -106,7 +98,6 @@ public class WebApp {
             return;
         }
 
-        // Extraer el valor n de los parámetros de la query
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = parseQueryParams(query);
         String nStr = params.get("n");
@@ -124,14 +115,11 @@ public class WebApp {
         }
 
         String queryId = UUID.randomUUID().toString();
-        // Inicializar entrada en cache como "procesando"
         QueryResult qr = new QueryResult("processing", 0, null);
         resultCache.put(queryId, qr);
 
-        // Lanzar búsqueda en segundo plano
         searchExecutor.submit(() -> executeSearch(queryId, n));
 
-        // Responder inmediatamente
         JSONObject response = new JSONObject();
         response.put("queryId", queryId);
         response.put("status", "processing");
@@ -139,7 +127,7 @@ public class WebApp {
     }
 
     private void handleQueryRequest(HttpExchange exchange) throws IOException {
-        String path = exchange.getRequestURI().getPath(); // /api/query/{queryId} o /api/query/{queryId}/status
+        String path = exchange.getRequestURI().getPath();
         String[] segments = path.split("/");
         if (segments.length < 4) {
             exchange.sendResponseHeaders(404, -1);
@@ -147,13 +135,11 @@ public class WebApp {
             return;
         }
         String queryId = segments[3];
-        String action = segments.length >= 5 ? segments[4] : ""; // "status" o vacío
+        String action = segments.length >= 5 ? segments[4] : "";
 
         if (action.equals("status")) {
-            // GET /api/query/{queryId}/status
             handleStatusRequest(exchange, queryId);
         } else if (action.equals("") && "GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-            // GET /api/query/{queryId}?page=X&size=Y
             handlePageRequest(exchange, queryId);
         } else {
             exchange.sendResponseHeaders(404, -1);
@@ -202,19 +188,15 @@ public class WebApp {
         sendJson(exchange, 200, response.toString());
     }
 
-    // ========== Lógica de búsqueda (asíncrona) ==========
-
+    // ========== Lógica de búsqueda con round‑robin ==========
     private void executeSearch(String queryId, int n) {
         try {
-            // 1. Obtener lista de libros del TextServer
             List<BookInfo> books = fetchBookList();
             if (books.size() < 2) {
-                // No hay suficientes libros, terminar con cero resultados
                 updateQuery(queryId, "completed", 0, Collections.emptyList());
                 return;
             }
 
-            // 2. Generar todas las parejas posibles
             List<Pair> pairs = new ArrayList<>();
             for (int i = 0; i < books.size(); i++) {
                 for (int j = i + 1; j < books.size(); j++) {
@@ -222,21 +204,29 @@ public class WebApp {
                 }
             }
 
-            // 3. Dividir en 3 sublistas (aproximadamente iguales)
-            int chunkSize = (int) Math.ceil(pairs.size() / 3.0);
+            // --- Round‑robin: reparto cíclico entre los tres Workers ---
+            int workersCount = workerUrls.size();
             List<List<Pair>> partitions = new ArrayList<>();
-            for (int i = 0; i < 3; i++) {
-                int start = i * chunkSize;
-                int end = Math.min(start + chunkSize, pairs.size());
-                if (start > end) end = start;
-                partitions.add(pairs.subList(start, end));
+            for (int i = 0; i < workersCount; i++) {
+                partitions.add(new ArrayList<>());
+            }
+            for (int idx = 0; idx < pairs.size(); idx++) {
+                int workerIndex = idx % workersCount;
+                partitions.get(workerIndex).add(pairs.get(idx));
             }
 
-            // 4. Enviar tareas en paralelo a los Workers
+            // Debug: mostrar cuántas parejas recibe cada Worker
+            System.out.println("Parejas totales: " + pairs.size());
+            for (int w = 0; w < workersCount; w++) {
+                System.out.println("Worker " + w + " recibe " + partitions.get(w).size() + " parejas");
+            }
+
+            // Enviar tareas en paralelo solo a los Workers con trabajo
             List<CompletableFuture<List<JSONObject>>> futures = new ArrayList<>();
-            for (int w = 0; w < 3 && w < partitions.size(); w++) {
+            for (int w = 0; w < workersCount; w++) {
                 List<Pair> partition = partitions.get(w);
                 if (partition.isEmpty()) continue;
+
                 String workerUrl = workerUrls.get(w) + "/task";
                 JSONObject taskPayload = new JSONObject();
                 taskPayload.put("n", n);
@@ -255,8 +245,8 @@ public class WebApp {
                 futures.add(future);
             }
 
-            // 5. Esperar a que todos terminen y recolectar matches
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
             List<JSONObject> allMatches = new ArrayList<>();
             for (CompletableFuture<List<JSONObject>> future : futures) {
                 try {
@@ -266,21 +256,17 @@ public class WebApp {
                 }
             }
 
-            // 6. Ordenar resultados (por títuloA, títuloB, offsetA)
             allMatches.sort(Comparator.comparing((JSONObject m) -> m.optString("titleA", ""))
                     .thenComparing(m -> m.optString("titleB", ""))
                     .thenComparingInt(m -> m.optInt("offsetA", 0)));
 
-            // 7. Actualizar cache
             updateQuery(queryId, "completed", allMatches.size(), allMatches);
 
         } catch (Exception e) {
             e.printStackTrace();
-            updateQuery(queryId, "completed", 0, Collections.emptyList()); // Falla -> 0 resultados
+            updateQuery(queryId, "completed", 0, Collections.emptyList());
         }
     }
-
-    // ------- Métodos auxiliares -------
 
     private List<BookInfo> fetchBookList() throws IOException, InterruptedException {
         String url = textServerUrl + "/books";
@@ -328,8 +314,6 @@ public class WebApp {
         resultCache.put(queryId, qr);
     }
 
-    // ------- Utilidades HTTP -------
-
     private void sendJson(HttpExchange exchange, int statusCode, String json) throws IOException {
         byte[] respBytes = json.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
@@ -359,8 +343,6 @@ public class WebApp {
         return params;
     }
 
-    // ========== Clases internas para datos ==========
-
     static class BookInfo {
         final String id;
         final String title;
@@ -373,7 +355,7 @@ public class WebApp {
     }
 
     static class QueryResult {
-        String status;       // "processing" o "completed"
+        String status;
         int total;
         List<JSONObject> results;
         QueryResult(String status, int total, List<JSONObject> results) {

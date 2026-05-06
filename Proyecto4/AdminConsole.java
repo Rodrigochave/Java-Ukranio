@@ -5,6 +5,7 @@ import com.googlecode.lanterna.screen.Screen;
 import com.googlecode.lanterna.screen.TerminalScreen;
 import com.googlecode.lanterna.terminal.DefaultTerminalFactory;
 import com.googlecode.lanterna.terminal.Terminal;
+import com.googlecode.lanterna.graphics.TextGraphics;
 
 import java.io.IOException;
 import java.net.URI;
@@ -14,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -27,8 +29,8 @@ public class AdminConsole {
     private Screen screen;
 
     public AdminConsole(String textServerUrl, Path localDir) {
-        this.textServerUrl = textServerUrl.endsWith("/") 
-                ? textServerUrl.substring(0, textServerUrl.length() - 1) 
+        this.textServerUrl = textServerUrl.endsWith("/")
+                ? textServerUrl.substring(0, textServerUrl.length() - 1)
                 : textServerUrl;
         this.localDir = localDir;
         if (!Files.exists(localDir)) {
@@ -85,7 +87,7 @@ public class AdminConsole {
 
     private void drawMenu() throws IOException {
         screen.clear();
-        com.googlecode.lanterna.graphics.TextGraphics tg = screen.newTextGraphics();
+        TextGraphics tg = screen.newTextGraphics();
         tg.setForegroundColor(TextColor.ANSI.CYAN);
         tg.putString(1, 1, "=== CONSOLA DE ADMINISTRACIÓN DE TEXTOS ===");
         tg.setForegroundColor(TextColor.ANSI.WHITE);
@@ -100,6 +102,8 @@ public class AdminConsole {
         screen.refresh();
     }
 
+    // ──────────── Utilidades de entrada / salida ────────────
+
     private char readChar() throws IOException {
         while (true) {
             KeyStroke key = screen.readInput();
@@ -113,33 +117,167 @@ public class AdminConsole {
         screen.readInput();
     }
 
+    /**
+     * Muestra un mensaje (varias líneas) y espera una tecla para continuar.
+     */
     private void showMessage(String msg, TextColor color) throws IOException {
-        com.googlecode.lanterna.graphics.TextGraphics tg = screen.newTextGraphics();
+        TextGraphics tg = screen.newTextGraphics();
         tg.setForegroundColor(color);
-        // Limpiar líneas inferiores
-        for (int i = 12; i < 20; i++) {
+        // Limpiar líneas 12-24
+        for (int i = 12; i < 25; i++) {
             tg.putString(1, i, " ".repeat(80));
         }
-        tg.putString(1, 12, msg);
-        tg.putString(1, 13, "Presiona cualquier tecla para continuar...");
+        String[] lines = msg.split("\n");
+        int row = 12;
+        for (String line : lines) {
+            if (row > 24) break;
+            tg.putString(1, row, line);
+            row++;
+        }
+        tg.putString(1, row, "Presiona cualquier tecla para continuar...");
         screen.refresh();
         waitForKey();
     }
 
-    // ──────────── Operaciones con el servidor ────────────
+    /**
+     * Muestra un mensaje paginado (similar a showPagedMessage) pero retorna el char leído.
+     */
+    private char showPagedMessage(String msg, TextColor color) throws IOException {
+        TextGraphics tg = screen.newTextGraphics();
+        tg.setForegroundColor(color);
+        for (int i = 12; i < 25; i++) {
+            tg.putString(1, i, " ".repeat(80));
+        }
+        String[] lines = msg.split("\n");
+        int row = 12;
+        for (String line : lines) {
+            if (row > 24) break;
+            tg.putString(1, row, line);
+            row++;
+        }
+        screen.refresh();
+        KeyStroke key = screen.readInput();
+        if (key.getKeyType() == KeyType.Character) {
+            return key.getCharacter();
+        }
+        return 0;
+    }
+
+    /**
+     * Lee un número entero positivo mostrando los dígitos en pantalla y finalizando con Enter.
+     * Muestra el prompt en la línea 12 (limpia antes).
+     */
+    private int readNumberInteractive(String prompt) throws IOException {
+        TextGraphics tg = screen.newTextGraphics();
+        tg.setForegroundColor(TextColor.ANSI.WHITE);
+        // Limpiar línea 12
+        tg.putString(1, 12, " ".repeat(80));
+        tg.putString(1, 12, prompt);
+        screen.refresh();
+
+        StringBuilder sb = new StringBuilder();
+        while (true) {
+            KeyStroke key = screen.readInput();
+            if (key.getKeyType() == KeyType.Enter) {
+                break;
+            }
+            if (key.getKeyType() == KeyType.Character) {
+                char c = key.getCharacter();
+                if (Character.isDigit(c)) {
+                    sb.append(c);
+                    // Mostrar el número actualizado
+                    tg.putString(1, 12, prompt + sb.toString());
+                    screen.refresh();
+                } else if (c == 8 || c == 127) { // backspace
+                    if (sb.length() > 0) {
+                        sb.deleteCharAt(sb.length() - 1);
+                        tg.putString(1, 12, prompt + sb.toString() + " ");
+                        screen.refresh();
+                    }
+                }
+            }
+        }
+        if (sb.length() == 0) return 0;
+        return Integer.parseInt(sb.toString());
+    }
+
+    // ──────────── Lógica de paginación para listas ────────────
+
+    /**
+     * Muestra una lista de strings en páginas y permite seleccionar un índice (1-based).
+     * Retorna el índice seleccionado, o 0 si se cancela (Enter sin número o 'q').
+     */
+    private int selectFromList(List<String> items, String title, TextColor color) throws IOException {
+        int pageSize = 8;
+        int total = items.size();
+        int pages = (int) Math.ceil((double) total / pageSize);
+
+        for (int p = 0; p < pages; p++) {
+            int start = p * pageSize;
+            int end = Math.min(start + pageSize, total);
+
+            StringBuilder sb = new StringBuilder();
+            sb.append(title).append(" (").append(p + 1).append("/").append(pages).append("):\n");
+            for (int i = start; i < end; i++) {
+                sb.append(i + 1).append(". ").append(items.get(i)).append("\n");
+            }
+
+            String prompt;
+            if (p < pages - 1) {
+                prompt = "\nEnter = elegir número | cualquier tecla = siguiente página | q = salir";
+            } else {
+                prompt = "\nEnter = elegir número | cualquier tecla = volver al inicio | q = salir";
+            }
+            sb.append(prompt);
+
+            char response = showPagedMessage(sb.toString(), color);
+            if (response == 'q' || response == 'Q') {
+                return 0;
+            }
+            if (response == 0) { // Enter o tecla especial
+                // Mostrar cuadro de entrada numérica
+                int choice = readNumberInteractive("Ingresa el número (0 para cancelar): ");
+                if (choice < 1 || choice > total) {
+                    return 0;
+                }
+                return choice;
+            }
+            // cualquier otra tecla: siguiente página (o volver al inicio si es la última)
+        }
+        return 0;
+    }
+
+    // ──────────── Operaciones del menú ────────────
 
     private void listRemoteBooks() {
         try {
             JSONArray books = getJSON("/books");
             if (books.isEmpty()) {
                 showMessage("No hay libros en el servidor.", TextColor.ANSI.YELLOW);
-            } else {
-                StringBuilder sb = new StringBuilder("Libros en servidor:\n");
-                for (int i = 0; i < books.length(); i++) {
-                    JSONObject b = books.getJSONObject(i);
-                    sb.append(String.format("%s [%s]\n", b.getString("title"), b.getString("id")));
+                return;
+            }
+
+            List<String> bookNames = new ArrayList<>();
+            for (int i = 0; i < books.length(); i++) {
+                JSONObject b = books.getJSONObject(i);
+                bookNames.add(b.getString("title") + " [" + b.getString("id") + "]");
+            }
+            // Solo visualización, no selección
+            int pageSize = 10;
+            int total = bookNames.size();
+            int pages = (int) Math.ceil((double) total / pageSize);
+            for (int p = 0; p < pages; p++) {
+                int start = p * pageSize;
+                int end = Math.min(start + pageSize, total);
+                StringBuilder sb = new StringBuilder();
+                sb.append(String.format("Libros en servidor (%d/%d):\n", p + 1, pages));
+                for (int i = start; i < end; i++) {
+                    sb.append(bookNames.get(i)).append("\n");
                 }
-                showMessage(sb.toString(), TextColor.ANSI.GREEN);
+                String prompt = (p < pages - 1) ? "\nCualquier tecla = siguiente página | q = salir" : "\nCualquier tecla = volver al menú";
+                sb.append(prompt);
+                char resp = showPagedMessage(sb.toString(), TextColor.ANSI.GREEN);
+                if (resp == 'q' || resp == 'Q') break;
             }
         } catch (Exception e) {
             showError(e);
@@ -155,14 +293,14 @@ public class AdminConsole {
                 showMessage("No hay archivos .txt en " + localDir, TextColor.ANSI.YELLOW);
                 return;
             }
-            StringBuilder list = new StringBuilder("Archivos disponibles:\n");
-            for (int i = 0; i < localFiles.size(); i++) {
-                list.append(i + 1).append(". ").append(localFiles.get(i).getFileName()).append("\n");
-            }
-            list.append("Elige un número (0 para cancelar): ");
-            showMessage(list.toString(), TextColor.ANSI.WHITE);
-            int choice = readNumber();
-            if (choice <= 0 || choice > localFiles.size()) return;
+
+            List<String> fileNames = localFiles.stream()
+                    .map(p -> p.getFileName().toString())
+                    .collect(Collectors.toList());
+
+            int choice = selectFromList(fileNames, "Archivos locales", TextColor.ANSI.WHITE);
+            if (choice <= 0) return;
+
             Path chosen = localFiles.get(choice - 1);
             String title = chosen.getFileName().toString().replace(".txt", "");
             byte[] content = Files.readAllBytes(chosen);
@@ -182,6 +320,11 @@ public class AdminConsole {
                 showMessage("No hay archivos .txt en " + localDir, TextColor.ANSI.YELLOW);
                 return;
             }
+            // Confirmación
+            showMessage("Se subirán " + localFiles.size() + " archivos. ¿Continuar? (s/n): ", TextColor.ANSI.YELLOW);
+            char confirm = readChar();
+            if (confirm != 's' && confirm != 'S') return;
+
             int uploaded = 0;
             for (Path f : localFiles) {
                 String title = f.getFileName().toString().replace(".txt", "");
@@ -190,7 +333,7 @@ public class AdminConsole {
                     uploadBook(title, content);
                     uploaded++;
                 } catch (Exception e) {
-                    // Ignorar duplicados (409) u otros errores
+                    // Ignorar duplicados
                 }
             }
             showMessage("Subidos " + uploaded + " de " + localFiles.size() + " archivos.", TextColor.ANSI.GREEN);
@@ -218,15 +361,16 @@ public class AdminConsole {
                 showMessage("No hay libros para eliminar.", TextColor.ANSI.YELLOW);
                 return;
             }
-            StringBuilder list = new StringBuilder("Libros en servidor:\n");
+
+            List<String> bookEntries = new ArrayList<>();
             for (int i = 0; i < books.length(); i++) {
                 JSONObject b = books.getJSONObject(i);
-                list.append(i + 1).append(". ").append(b.getString("title")).append(" [").append(b.getString("id")).append("]\n");
+                bookEntries.add(b.getString("title") + " [" + b.getString("id") + "]");
             }
-            list.append("Elige un número (0 para cancelar): ");
-            showMessage(list.toString(), TextColor.ANSI.WHITE);
-            int choice = readNumber();
-            if (choice <= 0 || choice > books.length()) return;
+
+            int choice = selectFromList(bookEntries, "Libros en servidor", TextColor.ANSI.WHITE);
+            if (choice <= 0) return;
+
             String id = books.getJSONObject(choice - 1).getString("id");
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(textServerUrl + "/books/" + id))
@@ -248,6 +392,7 @@ public class AdminConsole {
             showMessage("¿Seguro que deseas eliminar TODOS los libros? (s/n): ", TextColor.ANSI.RED);
             char confirm = readChar();
             if (confirm != 's' && confirm != 'S') return;
+
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(textServerUrl + "/books"))
                     .DELETE()
@@ -276,21 +421,6 @@ public class AdminConsole {
         } else {
             throw new IOException("HTTP " + response.statusCode() + ": " + response.body());
         }
-    }
-
-    private int readNumber() throws IOException {
-        StringBuilder sb = new StringBuilder();
-        while (true) {
-            KeyStroke key = screen.readInput();
-            if (key.getKeyType() == KeyType.Enter) break;
-            if (key.getKeyType() == KeyType.Character) {
-                char c = key.getCharacter();
-                if (Character.isDigit(c)) {
-                    sb.append(c);
-                }
-            }
-        }
-        return sb.length() == 0 ? 0 : Integer.parseInt(sb.toString());
     }
 
     private void showError(Exception e) {

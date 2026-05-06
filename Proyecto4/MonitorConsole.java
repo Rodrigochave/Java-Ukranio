@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
@@ -19,7 +20,10 @@ public class MonitorConsole {
     private final List<String> workerUrls;
     private Screen screen;
     private volatile boolean running = true;
-    private static final HttpClient client = HttpClient.newHttpClient();
+    private static final HttpClient client = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(Duration.ofSeconds(3))
+            .build();
 
     public MonitorConsole(List<String> workerUrls) {
         this.workerUrls = workerUrls;
@@ -43,6 +47,7 @@ public class MonitorConsole {
     private void start() {
         try {
             DefaultTerminalFactory factory = new DefaultTerminalFactory();
+            factory.setForceTextTerminal(true);   // compatibilidad máxima
             Terminal terminal = factory.createTerminal();
             screen = new TerminalScreen(terminal);
             screen.startScreen();
@@ -51,7 +56,7 @@ public class MonitorConsole {
                 try {
                     while (running) {
                         KeyStroke key = screen.readInput();
-                        if (key.getKeyType() == KeyType.Escape) {
+                        if (key != null && key.getKeyType() == KeyType.Escape) {
                             running = false;
                             break;
                         }
@@ -61,60 +66,73 @@ public class MonitorConsole {
             inputThread.setDaemon(true);
             inputThread.start();
 
+            long lastUpdate = 0;
             while (running) {
-                updateScreen();
-                Thread.sleep(2000);
+                // Actualizar cada 2 segundos
+                if (System.currentTimeMillis() - lastUpdate > 2000) {
+                    updateScreen();
+                    lastUpdate = System.currentTimeMillis();
+                }
+                Thread.sleep(500); // pequeña pausa para no saturar la CPU
             }
             screen.stopScreen();
         } catch (Exception e) {
+            System.err.println("Error iniciando monitor: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    private void updateScreen() throws IOException {
-        screen.clear();
-        TextGraphics tg = screen.newTextGraphics();
-        tg.setForegroundColor(TextColor.ANSI.CYAN);
-        tg.putString(1, 0, "=== MONITOR DE WORKERS (CPU en tiempo real) ===");
-        tg.putString(1, 1, "Worker                    CPU  Gráfico");
-        int row = 2;
-        for (String url : workerUrls) {
-            double cpu = 0.0;
-            boolean alive = false;
-            try {
-                HttpRequest req = HttpRequest.newBuilder()
-                        .uri(URI.create(url + "/status"))
-                        .GET()
-                        .build();
-                HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
-                if (resp.statusCode() == 200) {
-                    org.json.JSONObject json = new org.json.JSONObject(resp.body());
-                    cpu = json.optDouble("cpu", 0.0);
-                    alive = true;
+    private void updateScreen() {
+        try {
+            screen.clear();
+            TextGraphics tg = screen.newTextGraphics();
+            tg.setForegroundColor(TextColor.ANSI.CYAN);
+            tg.putString(1, 0, "=== MONITOR DE WORKERS (CPU en tiempo real) ===");
+            tg.putString(1, 1, "Worker                    CPU  Gráfico");
+            int row = 2;
+            for (String url : workerUrls) {
+                double cpu = 0.0;
+                boolean alive = false;
+                try {
+                    HttpRequest req = HttpRequest.newBuilder()
+                            .uri(URI.create(url + "/status"))
+                            .timeout(Duration.ofSeconds(2))
+                            .GET()
+                            .build();
+                    HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+                    if (resp.statusCode() == 200) {
+                        org.json.JSONObject json = new org.json.JSONObject(resp.body());
+                        cpu = json.optDouble("cpu", 0.0);
+                        alive = true;
+                    }
+                } catch (Exception e) {
+                    // Worker no responde, se marcará OFFLINE
                 }
-            } catch (Exception ignored) {}
 
-            String displayUrl = url.length() > 25 ? url.substring(7, 32) : url;
+                String displayUrl = url.length() > 30 ? url.substring(7, 32) : url;
+                tg.setForegroundColor(TextColor.ANSI.WHITE);
+                tg.putString(1, row, String.format("%-25s %3.0f%% ", displayUrl, cpu * 100));
+
+                int barLen = (int) (cpu * 20);
+                StringBuilder bar = new StringBuilder("[");
+                for (int i = 0; i < 20; i++) {
+                    bar.append(i < barLen ? "#" : " ");
+                }
+                bar.append("]");
+                tg.setForegroundColor(cpu > 0.7 ? TextColor.ANSI.RED : (cpu > 0.3 ? TextColor.ANSI.YELLOW : TextColor.ANSI.GREEN));
+                tg.putString(55, row, bar.toString());
+
+                if (!alive) {
+                    tg.setForegroundColor(TextColor.ANSI.RED);
+                    tg.putString(55 + bar.length() + 2, row, "OFFLINE");
+                }
+                row++;
+            }
             tg.setForegroundColor(TextColor.ANSI.WHITE);
-            tg.putString(1, row, String.format("%-25s %3.0f%% ", displayUrl, cpu * 100));
-
-            int barLen = (int) (cpu * 20);
-            StringBuilder bar = new StringBuilder("[");
-            for (int i = 0; i < 20; i++) {
-                bar.append(i < barLen ? "#" : " ");
-            }
-            bar.append("]");
-            tg.setForegroundColor(cpu > 0.7 ? TextColor.ANSI.RED : (cpu > 0.3 ? TextColor.ANSI.YELLOW : TextColor.ANSI.GREEN));
-            tg.putString(55, row, bar.toString());
-
-            if (!alive) {
-                tg.setForegroundColor(TextColor.ANSI.RED);
-                tg.putString(55 + bar.length() + 2, row, "OFFLINE");
-            }
-            row++;
+            tg.putString(1, row + 1, "Presiona ESC para salir.");
+            screen.refresh();
+        } catch (IOException e) {
+            System.err.println("Error al actualizar pantalla: " + e.getMessage());
         }
-        tg.setForegroundColor(TextColor.ANSI.WHITE);
-        tg.putString(1, row + 1, "Presiona ESC para salir.");
-        screen.refresh();
     }
 }
