@@ -1,3 +1,4 @@
+//Número de proyecto: 4 Nombre:Chavez Aquiagual Rodrigo Grupo: 7CM4 
 import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.graphics.TextGraphics;
 import com.googlecode.lanterna.input.KeyStroke;
