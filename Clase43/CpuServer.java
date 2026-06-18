@@ -99,7 +99,7 @@ public class CpuServer {
     }
 
     public static void main(String[] args) throws IOException {
-        int port = 8080;
+        int port = 80;
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/cpu", new CpuHandler());
         server.start();
