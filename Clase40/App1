@@ -1,0 +1,119 @@
+package com.mycompany.app;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.Scanner;
+
+public class App {
+
+    public static void main(String[] args) {
+
+        // =========================================
+        // CONFIGURACIÓN DE LA BASE DE DATOS PRIMARIA
+        // =========================================
+        String primaryInstance = "servicio-pub-sub:us-central1:mysql-master";
+        String databaseName = "Biblioteca";
+        String username = "root";
+        String password = "Tortugo_666_20";
+
+        String jdbcUrlPrimary = String.format(
+            "jdbc:mysql://google/%s?cloudSqlInstance=%s&socketFactory=com.google.cloud.sql.mysql.SocketFactory&useSSL=false",
+            databaseName,
+            primaryInstance
+        );
+
+        Scanner scanner = new Scanner(System.in);
+
+        try (Connection connPrimaria = DriverManager.getConnection(jdbcUrlPrimary, username, password)) {
+
+            // =========================================
+            // MOSTRAR USUARIOS ACTUALES EN PRIMARIA 
+            // =========================================
+            System.out.println("=== USUARIOS ACTUALES EN LA BASE PRIMARIA ===\n");
+            String selectSQL = "SELECT id_usuario, nombre, correo FROM Usuarios";
+            try (PreparedStatement selectStmt = connPrimaria.prepareStatement(selectSQL);
+                 ResultSet rs = selectStmt.executeQuery()) {
+                while (rs.next()) {
+                    System.out.println(
+                        "ID: " + rs.getInt("id_usuario")
+                        + " | Usuario: " + rs.getString("nombre")
+                        + " | Email: " + rs.getString("correo")
+                    );
+                }
+            }
+
+            // =========================================
+            // CAPTURAR DATOS DEL NUEVO USUARIO DESDE CONSOLA
+            // =========================================
+            System.out.println("\n=== NUEVO USUARIO ===");
+            System.out.print("Ingresa el ID del usuario: ");
+            int id = scanner.nextInt();
+            scanner.nextLine(); // limpiar buffer
+            System.out.print("Ingresa el nombre: ");
+            String nombre = scanner.nextLine();
+            System.out.print("Ingresa el correo: ");
+            String correo = scanner.nextLine();
+
+            // =========================================
+            // INSERTAR USUARIO EN LA BASE PRIMARIA
+            // =========================================
+            String insertarSQL = "INSERT INTO Usuarios(id_usuario, nombre, correo) VALUES (?, ?, ?)";
+            try (PreparedStatement insertStmt = connPrimaria.prepareStatement(insertarSQL)) {
+                insertStmt.setInt(1, id);
+                insertStmt.setString(2, nombre);
+                insertStmt.setString(3, correo);
+                insertStmt.executeUpdate();
+                System.out.println("\n Usuario insertado correctamente en la base de datos PRIMARIA.");
+            }
+
+        } catch (Exception e) {
+            System.err.println(" Error trabajando con la base de datos PRIMARIA:");
+            e.printStackTrace();
+            scanner.close();
+            return; // Si falla la inserción, no continuamos
+        }
+
+        // Pequeña pausa para dar tiempo a la replicación
+        System.out.println("\n Esperando un momento para que la replicación se propague...");
+        try {
+            Thread.sleep(2000); // 2 segundos, puede aumentarse a 5000 si es necesario
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // =========================================
+        // CONEXIÓN A LA BASE DE DATOS SECUNDARIA (RÉPLICA)
+        // =========================================
+        String secondaryInstance = "servicio-pub-sub:us-central1:mysql-master-replica";
+        String jdbcUrlSecondary = String.format(
+            "jdbc:mysql://google/%s?cloudSqlInstance=%s&socketFactory=com.google.cloud.sql.mysql.SocketFactory&useSSL=false",
+            databaseName,
+            secondaryInstance
+        );
+
+        try (Connection connSecundaria = DriverManager.getConnection(jdbcUrlSecondary, username, password)) {
+            System.out.println("\n=== CONECTADO A LA BASE DE DATOS SECUNDARIA (RÉPLICA) ===");
+            System.out.println("=== USUARIOS ACTUALES EN LA RÉPLICA ===\n");
+
+            String selectSQL = "SELECT id_usuario, nombre, correo FROM Usuarios ORDER BY id_usuario";
+            try (PreparedStatement selectStmt = connSecundaria.prepareStatement(selectSQL);
+                 ResultSet rs = selectStmt.executeQuery()) {
+
+                while (rs.next()) {
+                    System.out.println(
+                        "ID: " + rs.getInt("id_usuario")
+                        + " | Usuario: " + rs.getString("nombre")
+                        + " | Email: " + rs.getString("correo")
+                    );
+                }
+            }
+        } catch (Exception e) {
+            System.err.println(" Error conectando a la base de datos SECUNDARIA:");
+            e.printStackTrace();
+        }
+
+        scanner.close();
+    }
+}
