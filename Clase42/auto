@@ -1,0 +1,18 @@
+#!/bin/bash
+# Actualiza la lista de paquetes
+apt update
+# Instala OpenJDK 17
+apt -y install openjdk-17-jre-headless
+# Crea el directorio destino si no existe
+mkdir -p /home/hermoxito1  
+# Copia el archivo JAR desde el bucket
+gsutil cp gs://elmms/WebServer.jar /home/hermoxito1/
+# Espera hasta que el archivo exista
+while [ ! -f /home/hermoxito1/WebServer.jar ]; do
+ echo "Esperando a que WebServer.jar esté disponible..."
+ sleep 1
+done
+# Da permisos de ejecución por si se requiere
+chmod +x /home/hermoxito1/WebServer.jar
+# Ejecuta el archivo JAR
+nohup java -jar /home/hermoxito1/WebServer.jar 80 > /home/hermoxito1/webserver.log 2>&1 &
